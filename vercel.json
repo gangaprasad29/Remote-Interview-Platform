@@ -7,7 +7,8 @@
       "config": {
         "distDir": "dist",
         "installCommand": "cd frontend && npm install --include=dev",
-        "buildCommand": "cd frontend && npm run build"
+        "buildCommand": "cd frontend && npm run build",
+        "outputDirectory": "dist"
       }
     },
     {
@@ -23,6 +24,10 @@
     {
       "src": "/(.*)",
       "dest": "/frontend/dist/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/dist/index.html"
     }
   ]
 }

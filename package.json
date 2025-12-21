@@ -5,10 +5,14 @@
   "scripts": {
     "build": "node vercel-build.js",
     "start": "cd backend && npm start",
-    "install": "echo 'Running install script...'"
+    "dev": "concurrently \"cd frontend && npm run dev\" \"cd backend && npm run dev\"",
+    "install": "echo 'Installing dependencies...'"
   },
   "engines": {
     "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.0"
   },
   "keywords": [],
   "author": "",
