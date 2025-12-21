@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "echo 'root build skipped'",
+    "build": "vite build --outDir dist",
     "dev": "vite",
     "lint": "eslint .",
     "preview": "vite preview"
