@@ -1,10 +1,12 @@
+import Navbar from "../components/Navbar";
 
-import React from 'react'
-
-const DashboardPage = () => {
+function DashboardPage() {
   return (
-    <div>DashboardPage</div>
-  )
+    <div className="min-h-screen bg-base-200">
+      <Navbar />
+      {/* rest of dashboard */}
+    </div>
+  );
 }
 
-export default DashboardPage
+export default DashboardPage;
