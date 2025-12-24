@@ -52,10 +52,14 @@ function SessionPage() {
     ? Object.values(PROBLEMS).find((p) => p.title === session.problem)
     : null;
 
+  // PARTICIPANT ONLY: Local state for code and language
+  // HOST: NO local state - only uses synced state from socket
   const [selectedLanguage, setSelectedLanguage] = useState("javascript");
   const initialCode = problemData?.starterCode?.[selectedLanguage] || "";
   const [localCode, setLocalCode] = useState(initialCode);
   const isInitialMountRef = useRef(true);
+  const socketNotReadyWarnedRef = useRef(false);
+  const hasSyncedOnConnectRef = useRef(false);
 
   // Real-time code and language synchronization using Socket.io
   const {
@@ -66,8 +70,6 @@ function SessionPage() {
     sendTypingIndicator,
     sendCodeRunOutput,
     isParticipantTyping,
-    setSyncedCode,
-    setSyncedLanguage,
     isConnected: isCodeSyncConnected,
   } = useCodeSyncSocket(
     socket,
@@ -94,10 +96,28 @@ function SessionPage() {
     };
   }, [isHost, socket]);
 
-  // Determine which code and language to use: synced for host, local for participant
-  // CRITICAL: Host MUST use syncedCode/syncedLanguage (from socket), never local state
-  const displayCode = isHost ? syncedCode : localCode;
-  const displayLanguage = isHost ? syncedLanguage : selectedLanguage;
+  // Determine which code and language to use
+  // CRITICAL RULE: Host MUST use syncedCode/syncedLanguage (from socket) ONLY
+  // Host has ZERO local editor state - participant is single source of truth
+  const displayCode = isHost ? (syncedCode || "") : localCode;
+  const displayLanguage = isHost ? (syncedLanguage || "javascript") : selectedLanguage;
+
+  // Auto-sync code when socket becomes ready (for participant)
+  useEffect(() => {
+    if (isParticipant && socket && isCodeSyncConnected && localCode && !hasSyncedOnConnectRef.current) {
+      // Socket just connected for the first time, sync current code
+      console.log("✅ [PARTICIPANT] Socket connected, syncing current code");
+      sendCodeUpdate(localCode);
+      sendLanguageUpdate(selectedLanguage);
+      hasSyncedOnConnectRef.current = true;
+      socketNotReadyWarnedRef.current = false; // Reset warning flag
+    }
+    
+    // Reset sync flag if socket disconnects
+    if (!isCodeSyncConnected) {
+      hasSyncedOnConnectRef.current = false;
+    }
+  }, [isParticipant, socket, isCodeSyncConnected, localCode, selectedLanguage, sendCodeUpdate, sendLanguageUpdate]);
 
   // Debug logging for socket connection status
   useEffect(() => {
@@ -108,28 +128,10 @@ function SessionPage() {
       socketConnected: isCodeSyncConnected,
       socketId: socket?.id,
       sessionId: session?.sessionId || id,
+      hostCodeLength: isHost ? syncedCode?.length : 0,
+      hostLanguage: isHost ? syncedLanguage : null,
     });
-  }, [isHost, isParticipant, socket, isCodeSyncConnected, session?.sessionId, id]);
-
-  // Sync language from socket when host receives updates
-  // CRITICAL: Always sync language from socket (single source of truth)
-  useEffect(() => {
-    if (isHost && syncedLanguage && syncedLanguage !== selectedLanguage) {
-      console.log("Host: Syncing language from socket:", syncedLanguage);
-      setSelectedLanguage(syncedLanguage);
-    }
-  }, [isHost, syncedLanguage]);
-
-  // CRITICAL: Prevent local state from overwriting socket-synced code for host
-  // Host code should ONLY come from socket updates
-  useEffect(() => {
-    if (isHost && syncedCode && syncedCode !== displayCode) {
-      // Socket has updated code, ensure it's displayed
-      // This is handled by displayCode = isHost ? syncedCode : localCode
-      // But we log to verify
-      console.log("Host: Code synced from socket, length:", syncedCode.length);
-    }
-  }, [isHost, syncedCode]);
+  }, [isHost, isParticipant, socket, isCodeSyncConnected, session?.sessionId, id, syncedCode, syncedLanguage]);
 
   // auto-join session if user is not already a participant and not the host
   useEffect(() => {
@@ -151,46 +153,25 @@ function SessionPage() {
     }
   }, [session, loadingSession, navigate, isHost]);
 
-  // Initialize code when problem loads (only on mount, not on language change)
-  // CRITICAL: Do NOT overwrite socket-synced code for host
+  // PARTICIPANT ONLY: Initialize code when problem loads
+  // HOST: Does NOT initialize - waits for socket state from server
   useEffect(() => {
+    if (!isParticipant) return; // Host does nothing here
     if (!problemData?.starterCode?.[selectedLanguage]) return;
     
     const starterCode = problemData.starterCode[selectedLanguage];
     
-    if (isParticipant) {
-      // Participant: update local code and sync initial state via Socket.io
-      // Only on initial mount to prevent overwriting user edits
-      if (isInitialMountRef.current) {
-        setLocalCode(starterCode);
-        if (socket && isCodeSyncConnected) {
-          // Small delay to ensure socket is ready
-          setTimeout(() => {
-            sendCodeUpdate(starterCode);
-            sendLanguageUpdate(selectedLanguage);
-          }, 500);
-        }
-      }
-    } else if (isHost) {
-      // Host: ONLY set initial code if socket hasn't synced anything yet
-      // NEVER overwrite socket-synced code
-      if (isInitialMountRef.current && (!syncedCode || syncedCode === initialCode)) {
-        setSyncedCode(starterCode);
-      }
-    }
-  }, [problemData, isParticipant, isHost]); // Minimal dependencies to prevent resets
-
-  // Sync initial code and language on mount (for participant) - ONLY ONCE
-  useEffect(() => {
-    if (isInitialMountRef.current && isParticipant && initialCode) {
+    // Participant: update local code and sync initial state via Socket.io
+    // Only on initial mount to prevent overwriting user edits
+    if (isInitialMountRef.current && initialCode) {
       isInitialMountRef.current = false;
-      setLocalCode(initialCode);
+      setLocalCode(starterCode);
       
       // Wait for socket to be ready before sending
       const sendInitialState = () => {
         if (socket && isCodeSyncConnected) {
           console.log("Participant: Sending initial code and language via Socket.io");
-          sendCodeUpdate(initialCode);
+          sendCodeUpdate(starterCode);
           sendLanguageUpdate(selectedLanguage);
         } else {
           // Retry after a short delay if socket not ready
@@ -200,7 +181,7 @@ function SessionPage() {
       
       sendInitialState();
     }
-  }, [isParticipant, initialCode, selectedLanguage]); // Remove socket/isCodeSyncConnected to prevent re-triggering
+  }, [isParticipant, problemData, selectedLanguage, initialCode, socket, isCodeSyncConnected, sendCodeUpdate, sendLanguageUpdate]);
 
   const handleLanguageChange = (e) => {
     const newLang = e.target.value;
@@ -238,11 +219,18 @@ function SessionPage() {
     if (socket && isCodeSyncConnected) {
       sendCodeUpdate(newCode);
       sendTypingIndicator();
+      // Reset warning flag once socket is working
+      socketNotReadyWarnedRef.current = false;
     } else {
-      console.warn("Participant: Socket not ready, code update not sent", {
-        hasSocket: !!socket,
-        isConnected: isCodeSyncConnected,
-      });
+      // Only warn once, not on every keystroke
+      if (!socketNotReadyWarnedRef.current) {
+        console.warn("⚠️ [PARTICIPANT] Socket not ready, code updates will sync when connected", {
+          hasSocket: !!socket,
+          isConnected: isCodeSyncConnected,
+        });
+        socketNotReadyWarnedRef.current = true;
+      }
+      // Still update local state so user can type, sync will happen when socket connects
     }
   };
 
@@ -412,16 +400,30 @@ function SessionPage() {
               <Panel defaultSize={50} minSize={20}>
                 <PanelGroup direction="vertical">
                   <Panel defaultSize={70} minSize={30}>
-                    <CodeEditorPanel
-                      selectedLanguage={displayLanguage}
-                      code={displayCode}
-                      isRunning={isRunning}
-                      onLanguageChange={handleLanguageChange}
-                      onCodeChange={handleCodeChange}
-                      onRunCode={handleRunCode}
-                      readOnly={isHost}
-                      isParticipantTyping={isParticipantTyping}
-                    />
+                    {isHost && (!syncedCode || syncedCode === "") ? (
+                      <div className="h-full bg-base-300 flex items-center justify-center">
+                        <div className="text-center p-8">
+                          <div className="text-6xl mb-4">👀</div>
+                          <h3 className="text-xl font-semibold text-base-content mb-2">
+                            Waiting for participant to start coding...
+                          </h3>
+                          <p className="text-base-content/60">
+                            The code editor will appear here once the participant begins coding.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <CodeEditorPanel
+                        selectedLanguage={displayLanguage}
+                        code={displayCode}
+                        isRunning={isRunning}
+                        onLanguageChange={handleLanguageChange}
+                        onCodeChange={handleCodeChange}
+                        onRunCode={handleRunCode}
+                        readOnly={isHost}
+                        isParticipantTyping={isParticipantTyping}
+                      />
+                    )}
                   </Panel>
 
                   <PanelResizeHandle className="h-2 bg-base-300 hover:bg-primary transition-colors cursor-row-resize" />

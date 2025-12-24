@@ -29,10 +29,17 @@ export function useSocket(sessionId, isHost, isParticipant) {
     }
 
     // Create socket connection
-    // Use the same base URL as axios for consistency
-    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:10000";
-    const serverUrl = apiUrl.replace(/\/$/, ""); // Remove trailing slash
-    const newSocket = io(serverUrl, {
+    // Socket.io needs the BASE server URL (not /api path)
+    // Extract base URL from VITE_API_URL or use default
+    let apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3000";
+    
+    // Remove /api path if present (socket.io connects to base server, not API routes)
+    apiUrl = apiUrl.replace(/\/api\/?$/, ""); // Remove trailing /api
+    apiUrl = apiUrl.replace(/\/$/, ""); // Remove trailing slash
+    
+    console.log("🔌 [FRONTEND] Connecting socket to:", apiUrl);
+    
+    const newSocket = io(apiUrl, {
       transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionDelay: 1000,
@@ -50,10 +57,17 @@ export function useSocket(sessionId, isHost, isParticipant) {
       // Join session room (only once)
       if (!hasJoinedRef.current) {
         hasJoinedRef.current = true;
-        console.log("Joining session room:", sessionId, "as", role || (isHost ? "host" : "participant"));
+        const userRole = role || (isHost ? "host" : "participant");
+        console.log("🟢 [FRONTEND] Joining session room:", {
+          sessionId,
+          role: userRole,
+          socketId: newSocket.id,
+          isHost,
+          isParticipant,
+        });
         newSocket.emit("join-session", {
           sessionId,
-          role: role || (isHost ? "host" : "participant"),
+          role: userRole,
         });
       }
     });
@@ -64,7 +78,12 @@ export function useSocket(sessionId, isHost, isParticipant) {
     });
 
     newSocket.on("connect_error", (error) => {
-      console.error("Socket connection error:", error);
+      console.error("❌ [FRONTEND] Socket connection error:", {
+        message: error.message,
+        type: error.type,
+        description: error.description,
+        serverUrl: apiUrl,
+      });
       setIsConnected(false);
     });
 
