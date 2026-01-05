@@ -40,6 +40,16 @@ app.get("/health", (req, res) => {
   res.status(200).json({ msg: "api is up and running" });
 });
 
+app.get("/keep-alive", (req, res) => {
+  res.send("Keep Alive");
+});
+
+setInterval(() => {
+  fetch("https://remote-interview-platform-bqb6.onrender.com/keep-alive")
+    .then(() => console.log("Pinged self to stay alive"))
+    .catch((error) => console.error("Ping failed:", error));
+}, 5 * 60 * 1000); // every 5 minutes
+
 // MongoDB connection status endpoint
 app.get("/api/db-status", async (req, res) => {
   const mongoose = (await import("mongoose")).default;
@@ -131,3 +141,4 @@ const startServer = async () => {
 };
 
 startServer();
+
